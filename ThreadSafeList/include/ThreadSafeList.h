@@ -6,95 +6,129 @@
 
 template <typename T>
 class ThreadSafeList {
+private:
+    struct Node {
+        std::shared_ptr<T> data;
+        std::unique_ptr<Node> next;
 
-	struct Node {
-		std::shared_ptr<T> data;
-		std::unique_ptr<Node> next;
+        Node() : next(nullptr) {}
+        explicit Node(T _data) : data(std::make_shared<T>(std::move(_data))), next(nullptr) {}
+    };
 
-		Node() : next(nullptr) {}
-		explicit Node(T _data) : data(std::make_shared<T>(std::move(_data))), next(nullptr) {}
-	};
-
-	Node head;
-	mutable std::mutex mutex;
-	std::size_t size_list = 0;
+    Node head;
+    mutable std::recursive_mutex mutex;
+    std::size_t size_count = 0;
 
 public:
+    class Iterator {
+    private:
+        Node* current;
+        std::unique_lock<std::recursive_mutex> lock;
 
-	ThreadSafeList() = default;
-	~ThreadSafeList() = default;
+    public:
+        Iterator(Node* node, std::recursive_mutex& mtx, bool already_locked = false)
+            : current(node) {
+            if (!already_locked) {
+                lock = std::unique_lock<std::recursive_mutex>(mtx);
+            }
+        }
 
-	ThreadSafeList(const ThreadSafeList&) = delete;
-	ThreadSafeList operator=(const ThreadSafeList&) = delete;
+        Iterator& operator++() {
+            if (current) current = current->next.get();
+            return *this;
+        }
 
-	void push_front(T _data) {
-		std::unique_ptr<Node> temp = std::make_unique<Node>(std::move(_data));
-		std::lock_guard<std::mutex> lock(mutex);
-		temp->next = std::move(head.next);
-		head.next = std::move(temp);
-		size_list++;
-	}
+        bool operator!=(const Iterator& other) const {
+            return current != other.current;
+        }
 
-	void push_back(T _data) {
-		std::unique_ptr<Node> temp = std::make_unique<Node>(std::move(_data));
-		std::lock_guard<std::mutex> lock(mutex);
+        T& operator*() {
+            return *(current->data);
+        }
+    };
 
-		Node* current = &head;
-		while (current->next) {
-			current = current->next.get();
-		}
+    ThreadSafeList() = default;
+    ~ThreadSafeList() = default;
 
-		current->next = std::move(temp);
-		size_list++;
-	}
+    ThreadSafeList(const ThreadSafeList&) = delete;
+    ThreadSafeList& operator=(const ThreadSafeList&) = delete;
 
-	std::size_t size() const {
-		std::lock_guard<std::mutex> lock(mutex);
-		return size_list;
-	}
+    void push_front(T _data) {
+        std::unique_ptr<Node> temp = std::make_unique<Node>(std::move(_data));
+        std::lock_guard<std::recursive_mutex> lock(mutex);
+        temp->next = std::move(head.next);
+        head.next = std::move(temp);
+        size_count++;
+    }
 
-	bool empty() const {
-		std::lock_guard<std::mutex> lock(mutex);
-		return size_list == 0;
-	}
+    void push_back(T _data) {
+        std::unique_ptr<Node> temp = std::make_unique<Node>(std::move(_data));
+        std::lock_guard<std::recursive_mutex> lock(mutex);
+        Node* current = &head;
+        while (current->next) {
+            current = current->next.get();
+        }
+        current->next = std::move(temp);
+        size_count++;
+    }
 
-	void clear() {
-		std::lock_guard<std::mutex> lock(mutex);
-		head.next.reset();
-		size_list = 0;
-	}
+    std::optional<T> pop_front() {
+        std::lock_guard<std::recursive_mutex> lock(mutex);
+        if (!head.next) return std::nullopt;
+        std::unique_ptr<Node> old_head = std::move(head.next);
+        head.next = std::move(old_head->next);
+        size_count--;
+        return *(old_head->data);
+    }
 
-	bool contains(const T& _data) {
-		std::lock_guard<std::mutex> lock(mutex);
+    std::size_t size() const {
+        std::lock_guard<std::recursive_mutex> lock(mutex);
+        return size_count;
+    }
 
-		Node* current = head.next.get();
+    bool empty() const {
+        std::lock_guard<std::recursive_mutex> lock(mutex);
+        return size_count == 0;
+    }
 
-		while (current) {
-			if (current->data && *(current->data) == _data) return true;
-			current = current->next.get();
-		}
+    void clear() {
+        std::lock_guard<std::recursive_mutex> lock(mutex);
+        while (head.next) {
+            head.next = std::move(head.next->next);
+        }
+        size_count = 0;
+    }
 
-		return false;
-	}
+    bool contains(const T& _data) const {
+        std::lock_guard<std::recursive_mutex> lock(mutex);
+        Node* current = head.next.get();
+        while (current) {
+            if (current->data && *(current->data) == _data) return true;
+            current = current->next.get();
+        }
+        return false;
+    }
 
-	bool remove(const T& _data) {
-		std::lock_guard<std::mutex> lock(mutex);
+    bool remove(const T& _data) {
+        std::lock_guard<std::recursive_mutex> lock(mutex);
+        Node* current = &head;
+        while (current->next) {
+            if (current->next->data && *(current->next->data) == _data) {
+                std::unique_ptr<Node> node_to_remove = std::move(current->next);
+                current->next = std::move(node_to_remove->next);
+                size_count--;
+                return true;
+            }
+            current = current->next.get();
+        }
+        return false;
+    }
 
-		Node* current = &head;
+    Iterator begin() {
+        return Iterator(head.next.get(), mutex);
+    }
 
-		while (current->next) {
-			if (current->next->data && *(current->next->data) == _data) {
-				std::unique_ptr<Node> node_to_remove = std::move(current->next);
-				current->next = std::move(node_to_remove->next);
-				size_list--;
-				return true;
-			}
-			current = current->next.get();
-		}
-		
-		return false;
-	}
-
+    Iterator end() {
+        return Iterator(nullptr, mutex, true);
+    }
 };
-
-

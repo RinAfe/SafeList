@@ -5,6 +5,8 @@ int main()
 {
 	ThreadSafeList<int> list;
 
+	list.clear();
+
 	list.push_back(5);
 
 	list.push_front(2);
@@ -16,6 +18,7 @@ int main()
 	std::cout << list.remove(5) << std::endl;
 
 	std::cout << list.empty() << std::endl;
+
 
 	list.clear();
 
