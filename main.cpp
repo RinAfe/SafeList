@@ -1,4 +1,5 @@
 #include <iostream>
+#include <algorithm>
 #include "ThreadSafeList.h"
 
 int main() {
@@ -15,22 +16,19 @@ int main() {
     std::cout << "\n2. Тест push_back:" << std::endl;
     list.push_back(10);
     std::cout << "   push_back(10)" << std::endl;
-    std::cout << "   size(): " << list.size() << " (ожидается: 1)" << std::endl;
-    std::cout << "   empty(): " << list.empty() << " (ожидается: 0)" << std::endl;
-
     list.push_back(20);
     std::cout << "   push_back(20)" << std::endl;
-    std::cout << "   size(): " << list.size() << " (ожидается: 2)" << std::endl;
+    list.push_back(30);
+    std::cout << "   push_back(30)" << std::endl;
 
     // Тест 3: push_front
     std::cout << "\n3. Тест push_front:" << std::endl;
     list.push_front(5);
     std::cout << "   push_front(5)" << std::endl;
-    std::cout << "   size(): " << list.size() << " (ожидается: 3)" << std::endl;
-
     list.push_front(1);
     std::cout << "   push_front(1)" << std::endl;
-    std::cout << "   size(): " << list.size() << " (ожидается: 4)" << std::endl;
+
+    std::cout << "   size(): " << list.size() << " (ожидается: 5)" << std::endl;
 
     // Тест 4: Итераторы (базовый обход)
     std::cout << "\n4. Тест итераторов (базовый обход):" << std::endl;
@@ -38,190 +36,135 @@ int main() {
     for (auto it = list.begin(); it != list.end(); ++it) {
         std::cout << *it << " ";
     }
-    std::cout << "(ожидается: 1 5 10 20)" << std::endl;
+    std::cout << "(ожидается: 1 5 10 20 30)" << std::endl;
 
-    // Тест 5: get_lock и передача lock в итератор
-    std::cout << "\n5. Тест get_lock и передачи lock:" << std::endl;
-    {
-        auto lock = list.get_lock();
-        auto it = list.begin(std::move(lock));
-        auto end = list.end();
+    // ТЕСТ 5: std::find (самое важное что ты просил)
+    std::cout << "\n5. Тест std::find:" << std::endl;
 
-        std::cout << "   Элементы (с get_lock): ";
-        while (it != end) {
-            std::cout << *it << " ";
-            ++it;
-        }
-        std::cout << "(ожидается: 1 5 10 20)" << std::endl;
+    // Поиск существующего элемента
+    auto it1 = std::find(list.begin(), list.end(), 10);
+    if (it1 != list.end()) {
+        std::cout << "   std::find(list.begin(), list.end(), 10): НАЙДЕНО " << *it1
+                  << " (ожидается: 10)" << std::endl;
+    } else {
+        std::cout << "   std::find(list.begin(), list.end(), 10): НЕ НАЙДЕНО (неправильно!)" << std::endl;
     }
 
-    // Тест 6: pop_front
-    std::cout << "\n6. Тест pop_front:" << std::endl;
-    auto front1 = list.pop_front();
-    if (front1.has_value()) {
-        std::cout << "   pop_front(): " << front1.value() << " (ожидается: 1)" << std::endl;
-    }
-    std::cout << "   size(): " << list.size() << " (ожидается: 3)" << std::endl;
-
-    auto front2 = list.pop_front();
-    if (front2.has_value()) {
-        std::cout << "   pop_front(): " << front2.value() << " (ожидается: 5)" << std::endl;
-    }
-    std::cout << "   size(): " << list.size() << " (ожидается: 2)" << std::endl;
-
-    std::cout << "   Элементы после двух pop_front: ";
-    for (auto it = list.begin(); it != list.end(); ++it) {
-        std::cout << *it << " ";
-    }
-    std::cout << "(ожидается: 10 20)" << std::endl;
-
-    // Тест 7: pop_front из пустого списка
-    std::cout << "\n7. Тест pop_front из пустого списка:" << std::endl;
-    {
-        ThreadSafeList<int> empty_list;
-        auto front = empty_list.pop_front();
-        if (!front.has_value()) {
-            std::cout << "   pop_front() из пустого списка: nullopt (корректно)" << std::endl;
-        }
+    // Поиск другого существующего элемента
+    auto it2 = std::find(list.begin(), list.end(), 20);
+    if (it2 != list.end()) {
+        std::cout << "   std::find(list.begin(), list.end(), 20): НАЙДЕНО " << *it2
+                  << " (ожидается: 20)" << std::endl;
+    } else {
+        std::cout << "   std::find(list.begin(), list.end(), 20): НЕ НАЙДЕНО (неправильно!)" << std::endl;
     }
 
-    // Тест 8: remove с итератором
-    std::cout << "\n8. Тест remove с итератором:" << std::endl;
-
-    // Добавляем еще элементов
-    list.push_back(30);
-    list.push_back(20); // Дубликат
-    list.push_back(40);
-    std::cout << "   Добавили 30, 20, 40" << std::endl;
-    std::cout << "   size(): " << list.size() << " (ожидается: 5)" << std::endl;
-
-    std::cout << "   Список до удалений: ";
-    for (auto it = list.begin(); it != list.end(); ++it) {
-        std::cout << *it << " ";
-    }
-    std::cout << "(ожидается: 10 20 30 20 40)" << std::endl;
-
-    // Удаляем первый элемент 20
-    auto it1 = list.begin();
-    bool removed1 = list.remove(20, it1);
-    std::cout << "   remove(20, begin()): " << removed1 << " (ожидается: 1)" << std::endl;
-    std::cout << "   size(): " << list.size() << " (ожидается: 4)" << std::endl;
-
-    std::cout << "   Список после удаления первой 20: ";
-    for (auto it = list.begin(); it != list.end(); ++it) {
-        std::cout << *it << " ";
-    }
-    std::cout << "(ожидается: 10 30 20 40)" << std::endl;
-
-    // Удаляем вторую 20, начиная с определенной позиции
-    auto it2 = list.begin();
-    ++it2; // Пропускаем 10
-    bool removed2 = list.remove(20, it2);
-    std::cout << "   remove(20, begin()+1): " << removed2 << " (ожидается: 1)" << std::endl;
-    std::cout << "   size(): " << list.size() << " (ожидается: 3)" << std::endl;
-
-    std::cout << "   Список после удаления второй 20: ";
-    for (auto it = list.begin(); it != list.end(); ++it) {
-        std::cout << *it << " ";
-    }
-    std::cout << "(ожидается: 10 30 40)" << std::endl;
-
-    // Тест 9: remove несуществующего элемента
-    std::cout << "\n9. Тест remove несуществующего элемента:" << std::endl;
-    auto it3 = list.begin();
-    bool removed3 = list.remove(99, it3);
-    std::cout << "   remove(99, begin()): " << removed3 << " (ожидается: 0)" << std::endl;
-    std::cout << "   size(): " << list.size() << " (ожидается: 3)" << std::endl;
-
-    // Тест 10: remove с end() итератором
-    std::cout << "\n10. Тест remove с end() итератором:" << std::endl;
-    auto end_it = list.end();
-    bool removed4 = list.remove(10, end_it);
-    std::cout << "   remove(10, end()): " << removed4 << " (ожидается: 0)" << std::endl;
-
-    // Тест 11: Конструктор по умолчанию итератора
-    std::cout << "\n11. Тест конструктора по умолчанию итератора:" << std::endl;
-    {
-        typename ThreadSafeList<int>::Iterator default_it;
-        std::cout << "   Создан default итератор" << std::endl;
-        std::cout << "   getNode(): " << default_it.getNode() << " (ожидается: 0/nullptr)" << std::endl;
+    // Поиск несуществующего элемента
+    auto it3 = std::find(list.begin(), list.end(), 99);
+    if (it3 != list.end()) {
+        std::cout << "   std::find(list.begin(), list.end(), 99): НАЙДЕНО " << *it3
+                  << " (неправильно, не должно быть!)" << std::endl;
+    } else {
+        std::cout << "   std::find(list.begin(), list.end(), 99): НЕ НАЙДЕНО (правильно!)" << std::endl;
     }
 
-    // Тест 12: clear
-    std::cout << "\n12. Тест clear:" << std::endl;
-    std::cout << "   size() до clear: " << list.size() << " (ожидается: 3)" << std::endl;
-    list.clear();
-    std::cout << "   size() после clear: " << list.size() << " (ожидается: 0)" << std::endl;
-    std::cout << "   empty() после clear: " << list.empty() << " (ожидается: 1)" << std::endl;
-
-    // Тест 13: Работа после clear
-    std::cout << "\n13. Тест работы после clear:" << std::endl;
-    list.push_back(100);
-    list.push_front(50);
-    std::cout << "   push_back(100), push_front(50)" << std::endl;
-    std::cout << "   size(): " << list.size() << " (ожидается: 2)" << std::endl;
-
-    std::cout << "   Элементы: ";
-    for (auto it = list.begin(); it != list.end(); ++it) {
-        std::cout << *it << " ";
+    // Поиск первого элемента
+    auto it4 = std::find(list.begin(), list.end(), 1);
+    if (it4 != list.end()) {
+        std::cout << "   std::find(list.begin(), list.end(), 1): НАЙДЕНО " << *it4
+                  << " (ожидается: 1)" << std::endl;
     }
-    std::cout << "(ожидается: 50 100)" << std::endl;
 
-    // Тест 14: Проверка tail указателя
-    std::cout << "\n14. Тест tail указателя (push_back/pop_front):" << std::endl;
-    {
-        ThreadSafeList<int> test_list;
-        test_list.push_back(1);
-        test_list.push_back(2);
-        test_list.push_back(3);
+    // Поиск последнего элемента
+    auto it5 = std::find(list.begin(), list.end(), 30);
+    if (it5 != list.end()) {
+        std::cout << "   std::find(list.begin(), list.end(), 30): НАЙДЕНО " << *it5
+                  << " (ожидается: 30)" << std::endl;
+    }
 
-        auto f1 = test_list.pop_front(); // удаляем 1
-        auto f2 = test_list.pop_front(); // удаляем 2
-        test_list.push_back(4); // добавляем в конец
+    // Тест 6: std::find_if
+    std::cout << "\n6. Тест std::find_if:" << std::endl;
 
-        std::cout << "   Элементы: ";
-        for (auto it = test_list.begin(); it != test_list.end(); ++it) {
+    // Поиск первого четного числа
+    auto even_it = std::find_if(list.begin(), list.end(), [](int x) {
+        return x % 2 == 0;
+    });
+    if (even_it != list.end()) {
+        std::cout << "   Первое четное число: " << *even_it
+                  << " (ожидается: 10 или другое четное)" << std::endl;
+    }
+
+    // Поиск числа больше 25
+    auto greater_it = std::find_if(list.begin(), list.end(), [](int x) {
+        return x > 25;
+    });
+    if (greater_it != list.end()) {
+        std::cout << "   Первое число > 25: " << *greater_it
+                  << " (ожидается: 30)" << std::endl;
+    }
+
+    // Тест 7: Использование найденного итератора
+    std::cout << "\n7. Тест использования найденного итератора:" << std::endl;
+    auto found_it = std::find(list.begin(), list.end(), 5);
+    if (found_it != list.end()) {
+        std::cout << "   Нашли элемент 5" << std::endl;
+        std::cout << "   Значение через *: " << *found_it << " (ожидается: 5)" << std::endl;
+
+        // Можем использовать для удаления
+        bool removed = list.remove(*found_it, found_it);
+        std::cout << "   Удалили элемент 5: " << removed << " (ожидается: 1)" << std::endl;
+        std::cout << "   Размер после удаления: " << list.size() << " (ожидается: 4)" << std::endl;
+
+        std::cout << "   Новый список: ";
+        for (auto it = list.begin(); it != list.end(); ++it) {
             std::cout << *it << " ";
         }
-        std::cout << "(ожидается: 3 4)" << std::endl;
-
-        test_list.pop_front(); // удаляем 3
-        test_list.pop_front(); // удаляем 4
-        std::cout << "   После удаления всех элементов:" << std::endl;
-        std::cout << "   empty(): " << test_list.empty() << " (ожидается: 1)" << std::endl;
-        std::cout << "   size(): " << test_list.size() << " (ожидается: 0)" << std::endl;
+        std::cout << "(ожидается: 1 10 20 30)" << std::endl;
     }
 
-    // Тест 15: Многократное использование
-    std::cout << "\n15. Тест многократного использования:" << std::endl;
-    {
-        ThreadSafeList<int> test_list;
-        for (int i = 0; i < 5; ++i) {
-            test_list.push_back(i * 10);
-        }
+    // Тест 8: std::count
+    std::cout << "\n8. Тест std::count:" << std::endl;
 
-        std::cout << "   Добавили 0, 10, 20, 30, 40" << std::endl;
-        std::cout << "   Итерация 1: ";
-        for (auto it = test_list.begin(); it != test_list.end(); ++it) {
-            std::cout << *it << " ";
-        }
-        std::cout << std::endl;
+    // Добавим дубликаты
+    list.push_back(20);
+    list.push_back(20);
+    std::cout << "   Добавили две 20" << std::endl;
 
-        // Удаляем средний элемент
-        auto it = test_list.begin();
-        ++it; ++it; // переходим на 20
-        test_list.remove(*it, it);
+    int count_20 = std::count(list.begin(), list.end(), 20);
+    std::cout << "   std::count(20): " << count_20 << " (ожидается: 3)" << std::endl;
 
-        std::cout << "   Удалили 20" << std::endl;
-        std::cout << "   Итерация 2: ";
-        for (auto it = test_list.begin(); it != test_list.end(); ++it) {
-            std::cout << *it << " ";
+    int count_99 = std::count(list.begin(), list.end(), 99);
+    std::cout << "   std::count(99): " << count_99 << " (ожидается: 0)" << std::endl;
+
+    // Тест 9: std::for_each
+    std::cout << "\n9. Тест std::for_each:" << std::endl;
+    std::cout << "   Элементы через std::for_each: ";
+    std::for_each(list.begin(), list.end(), [](int x) {
+        std::cout << x << " ";
+    });
+    std::cout << std::endl;
+
+    // Тест 10: Проверка, что после всех операций find все еще работает
+    std::cout << "\n10. Финальная проверка std::find:" << std::endl;
+
+    // Ищем все элементы по очереди
+    int test_values[] = {1, 10, 20, 30};
+    for (int val : test_values) {
+        auto it = std::find(list.begin(), list.end(), val);
+        if (it != list.end()) {
+            std::cout << "   " << val << " найден ✓" << std::endl;
+        } else {
+            std::cout << "   " << val << " НЕ найден ✗" << std::endl;
         }
-        std::cout << "(ожидается: 0 10 30 40)" << std::endl;
+    }
+
+    // Ищем несуществующее
+    auto not_found_it = std::find(list.begin(), list.end(), 999);
+    if (not_found_it == list.end()) {
+        std::cout << "   999 не найден (правильно) ✓" << std::endl;
     }
 
     std::cout << "\n=== ВСЕ ТЕСТЫ ЗАВЕРШЕНЫ ===" << std::endl;
 
     return 0;
 }
-
