@@ -1,170 +1,306 @@
 #include <iostream>
+#include <cassert>
+#include <thread>
+#include <vector>
 #include <algorithm>
+#include <random>
+#include <chrono>
 #include "ThreadSafeList.h"
 
-int main() {
-    std::cout << "=== ТЕСТИРОВАНИЕ ThreadSafeList ===" << std::endl;
-
+void test_basic_operations() {
+    std::cout << "Тестирование базовых операций..." << std::endl;
     ThreadSafeList<int> list;
 
-    // Тест 1: Конструктор и начальное состояние
-    std::cout << "\n1. Тест конструктора и начального состояния:" << std::endl;
-    std::cout << "   empty(): " << list.empty() << " (ожидается: 1)" << std::endl;
-    std::cout << "   size(): " << list.size() << " (ожидается: 0)" << std::endl;
+    assert(list.empty());
+    assert(list.size() == 0);
 
-    // Тест 2: push_back
-    std::cout << "\n2. Тест push_back:" << std::endl;
-    list.push_back(10);
-    std::cout << "   push_back(10)" << std::endl;
-    list.push_back(20);
-    std::cout << "   push_back(20)" << std::endl;
-    list.push_back(30);
-    std::cout << "   push_back(30)" << std::endl;
+    list.push_back(1);
+    assert(!list.empty());
+    assert(list.size() == 1);
 
-    // Тест 3: push_front
-    std::cout << "\n3. Тест push_front:" << std::endl;
-    list.push_front(5);
-    std::cout << "   push_front(5)" << std::endl;
-    list.push_front(1);
-    std::cout << "   push_front(1)" << std::endl;
+    list.push_front(2);
+    assert(list.size() == 2);
 
-    std::cout << "   size(): " << list.size() << " (ожидается: 5)" << std::endl;
+    auto front = list.pop_front();
+    assert(front.has_value());
+    assert(front.value() == 2);
+    assert(list.size() == 1);
 
-    // Тест 4: Итераторы (базовый обход)
-    std::cout << "\n4. Тест итераторов (базовый обход):" << std::endl;
-    std::cout << "   Элементы списка: ";
+    list.push_back(3);
+    list.push_back(4);
+    assert(list.size() == 3);
+
+    list.clear();
+    assert(list.empty());
+    assert(list.size() == 0);
+
+    std::cout << "Базовые операции прошли тест!" << std::endl << std::endl;
+}
+
+void test_iterator_operations() {
+    std::cout << "Тестирование операций с итераторами..." << std::endl;
+    ThreadSafeList<int> list;
+
+    for (int i = 0; i < 5; ++i) {
+        list.push_back(i);
+    }
+
+    int expected = 0;
     for (auto it = list.begin(); it != list.end(); ++it) {
-        std::cout << *it << " ";
+        assert(*it == expected);
+        ++expected;
     }
-    std::cout << "(ожидается: 1 5 10 20 30)" << std::endl;
+    assert(expected == 5);
 
-    // ТЕСТ 5: std::find (самое важное что ты просил)
-    std::cout << "\n5. Тест std::find:" << std::endl;
+    auto it = list.begin();
+    ++it;
+    ++it;
+    assert(*it == 2);
 
-    // Поиск существующего элемента
-    auto it1 = std::find(list.begin(), list.end(), 10);
-    if (it1 != list.end()) {
-        std::cout << "   std::find(list.begin(), list.end(), 10): НАЙДЕНО " << *it1
-                  << " (ожидается: 10)" << std::endl;
-    } else {
-        std::cout << "   std::find(list.begin(), list.end(), 10): НЕ НАЙДЕНО (неправильно!)" << std::endl;
+    std::cout << "Операции с итераторами прошли тест!" << std::endl << std::endl;
+}
+
+void test_erase_operations() {
+    std::cout << "Тестирование операций удаления..." << std::endl;
+    ThreadSafeList<int> list;
+
+    list.push_back(1);
+    list.push_back(2);
+    list.push_back(3);
+    list.push_back(2);
+    list.push_back(4);
+
+    assert(list.size() == 5);
+
+    bool removed = list.erase(2);
+    assert(removed);
+    assert(list.size() == 4);
+
+    auto it = list.begin();
+    ++it;
+    assert(*it == 3);
+
+    removed = list.erase(10);
+    assert(!removed);
+
+    list.clear();
+    list.push_back(1);
+    list.push_back(2);
+    list.push_back(3);
+    list.push_back(4);
+    list.push_back(5);
+
+    auto first = list.begin();
+    ++first;
+    auto last = list.begin();
+    for (int i = 0; i < 4; ++i) ++last;
+
+    removed = list.remove(3, first, last);
+    assert(removed);
+    assert(list.size() == 4);
+
+    int sum = 0;
+    for (auto val : list) {
+        sum += val;
+    }
+    assert(sum == 12);
+
+    removed = list.remove(1);
+    assert(removed);
+    assert(list.size() == 3);
+
+    std::cout << "Операции удаления прошли тест!" << std::endl << std::endl;
+}
+
+void test_concurrent_access() {
+    std::cout << "Тестирование конкурентного доступа..." << std::endl;
+    ThreadSafeList<int> list;
+    const int NUM_THREADS = 10;
+    const int OPERATIONS_PER_THREAD = 1000;
+
+    std::vector<std::thread> threads;
+    std::atomic<int> total_push_count{0};
+    std::atomic<int> total_pop_count{0};
+
+    auto start_time = std::chrono::high_resolution_clock::now();
+
+    for (int i = 0; i < NUM_THREADS; ++i) {
+        threads.emplace_back([&list, i, OPERATIONS_PER_THREAD, &total_push_count, &total_pop_count]() {
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::uniform_int_distribution<> dis(0, 100);
+
+            for (int j = 0; j < OPERATIONS_PER_THREAD; ++j) {
+                int operation = dis(gen) % 3;
+
+                switch (operation) {
+                    case 0:
+                        list.push_front(j);
+                        total_push_count++;
+                        break;
+                    case 1:
+                        list.push_back(j);
+                        total_push_count++;
+                        break;
+                    case 2:
+                        if (list.pop_front().has_value()) {
+                            total_pop_count++;
+                        }
+                        break;
+                }
+
+                if (j % 100 == 0) {
+                    list.size();
+                }
+            }
+        });
     }
 
-    // Поиск другого существующего элемента
-    auto it2 = std::find(list.begin(), list.end(), 20);
-    if (it2 != list.end()) {
-        std::cout << "   std::find(list.begin(), list.end(), 20): НАЙДЕНО " << *it2
-                  << " (ожидается: 20)" << std::endl;
-    } else {
-        std::cout << "   std::find(list.begin(), list.end(), 20): НЕ НАЙДЕНО (неправильно!)" << std::endl;
+    for (auto& thread : threads) {
+        thread.join();
     }
 
-    // Поиск несуществующего элемента
-    auto it3 = std::find(list.begin(), list.end(), 99);
-    if (it3 != list.end()) {
-        std::cout << "   std::find(list.begin(), list.end(), 99): НАЙДЕНО " << *it3
-                  << " (неправильно, не должно быть!)" << std::endl;
-    } else {
-        std::cout << "   std::find(list.begin(), list.end(), 99): НЕ НАЙДЕНО (правильно!)" << std::endl;
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
+
+    int final_size = list.size();
+    int expected_size = total_push_count - total_pop_count;
+
+    std::cout << "Финальный размер списка: " << final_size << std::endl;
+    std::cout << "Ожидаемый размер: " << expected_size << std::endl;
+    std::cout << "Всего добавлений: " << total_push_count << std::endl;
+    std::cout << "Всего удалений: " << total_pop_count << std::endl;
+    std::cout << "Время выполнения: " << duration.count() << " мс" << std::endl;
+
+    assert(final_size == expected_size);
+
+    std::cout << "Конкурентный доступ прошел тест!" << std::endl << std::endl;
+}
+
+void test_boundary_cases() {
+    std::cout << "Тестирование граничных случаев..." << std::endl;
+    ThreadSafeList<int> list;
+
+    auto empty_pop = list.pop_front();
+    assert(!empty_pop.has_value());
+
+    assert(list.empty());
+    assert(list.size() == 0);
+
+    list.push_back(1);
+    list.push_back(2);
+
+    list.erase(1);
+    assert(list.size() == 1);
+
+    list.erase(2);
+    assert(list.empty());
+
+    list.push_back(1);
+    list.push_back(2);
+    list.push_back(3);
+
+    auto it = list.begin();
+    auto next_it = list.erase(it);
+    assert(*next_it == 2);
+    assert(list.size() == 2);
+
+    list.clear();
+    for (int i = 0; i < 100; ++i) {
+        list.push_back(i);
+    }
+    assert(list.size() == 100);
+
+    std::cout << "Граничные случаи прошли тест!" << std::endl << std::endl;
+}
+
+void test_concurrent_erase() {
+    std::cout << "Тестирование конкурентного удаления..." << std::endl;
+    ThreadSafeList<int> list;
+    const int NUM_ELEMENTS = 10000;
+    const int NUM_THREADS = 8;
+
+    for (int i = 0; i < NUM_ELEMENTS; ++i) {
+        list.push_back(i % 10);
     }
 
-    // Поиск первого элемента
-    auto it4 = std::find(list.begin(), list.end(), 1);
-    if (it4 != list.end()) {
-        std::cout << "   std::find(list.begin(), list.end(), 1): НАЙДЕНО " << *it4
-                  << " (ожидается: 1)" << std::endl;
+    std::vector<std::thread> threads;
+    std::atomic<int> total_removed{0};
+
+    for (int t = 0; t < NUM_THREADS; ++t) {
+        threads.emplace_back([&list, t, &total_removed]() {
+            for (int i = 0; i < 100; ++i) {
+                if (list.erase(t % 10)) {
+                    total_removed++;
+                }
+                std::this_thread::sleep_for(std::chrono::microseconds(10));
+            }
+        });
     }
 
-    // Поиск последнего элемента
-    auto it5 = std::find(list.begin(), list.end(), 30);
-    if (it5 != list.end()) {
-        std::cout << "   std::find(list.begin(), list.end(), 30): НАЙДЕНО " << *it5
-                  << " (ожидается: 30)" << std::endl;
+    for (auto& thread : threads) {
+        thread.join();
     }
 
-    // Тест 6: std::find_if
-    std::cout << "\n6. Тест std::find_if:" << std::endl;
+    std::cout << "Удалено элементов: " << total_removed << std::endl;
+    std::cout << "Финальный размер: " << list.size() << std::endl;
 
-    // Поиск первого четного числа
-    auto even_it = std::find_if(list.begin(), list.end(), [](int x) {
-        return x % 2 == 0;
-    });
-    if (even_it != list.end()) {
-        std::cout << "   Первое четное число: " << *even_it
-                  << " (ожидается: 10 или другое четное)" << std::endl;
+    assert(list.size() == NUM_ELEMENTS - total_removed);
+
+    std::cout << "Конкурентное удаление прошло тест!" << std::endl << std::endl;
+}
+
+void test_iteration_while_modifying() {
+    std::cout << "Тестирование итерации во время модификации..." << std::endl;
+    ThreadSafeList<int> list;
+
+    for (int i = 0; i < 10; ++i) {
+        list.push_back(i);
     }
 
-    // Поиск числа больше 25
-    auto greater_it = std::find_if(list.begin(), list.end(), [](int x) {
-        return x > 25;
-    });
-    if (greater_it != list.end()) {
-        std::cout << "   Первое число > 25: " << *greater_it
-                  << " (ожидается: 30)" << std::endl;
-    }
-
-    // Тест 7: Использование найденного итератора
-    std::cout << "\n7. Тест использования найденного итератора:" << std::endl;
-    auto found_it = std::find(list.begin(), list.end(), 5);
-    if (found_it != list.end()) {
-        std::cout << "   Нашли элемент 5" << std::endl;
-        std::cout << "   Значение через *: " << *found_it << " (ожидается: 5)" << std::endl;
-
-        // Можем использовать для удаления
-        bool removed = list.remove(*found_it, found_it);
-        std::cout << "   Удалили элемент 5: " << removed << " (ожидается: 1)" << std::endl;
-        std::cout << "   Размер после удаления: " << list.size() << " (ожидается: 4)" << std::endl;
-
-        std::cout << "   Новый список: ";
-        for (auto it = list.begin(); it != list.end(); ++it) {
-            std::cout << *it << " ";
+    std::thread modifier([&list]() {
+        for (int i = 0; i < 5; ++i) {
+            list.push_back(100 + i);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            list.erase(2 + i);
         }
-        std::cout << "(ожидается: 1 10 20 30)" << std::endl;
-    }
-
-    // Тест 8: std::count
-    std::cout << "\n8. Тест std::count:" << std::endl;
-
-    // Добавим дубликаты
-    list.push_back(20);
-    list.push_back(20);
-    std::cout << "   Добавили две 20" << std::endl;
-
-    int count_20 = std::count(list.begin(), list.end(), 20);
-    std::cout << "   std::count(20): " << count_20 << " (ожидается: 3)" << std::endl;
-
-    int count_99 = std::count(list.begin(), list.end(), 99);
-    std::cout << "   std::count(99): " << count_99 << " (ожидается: 0)" << std::endl;
-
-    // Тест 9: std::for_each
-    std::cout << "\n9. Тест std::for_each:" << std::endl;
-    std::cout << "   Элементы через std::for_each: ";
-    std::for_each(list.begin(), list.end(), [](int x) {
-        std::cout << x << " ";
     });
-    std::cout << std::endl;
 
-    // Тест 10: Проверка, что после всех операций find все еще работает
-    std::cout << "\n10. Финальная проверка std::find:" << std::endl;
+    std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
-    // Ищем все элементы по очереди
-    int test_values[] = {1, 10, 20, 30};
-    for (int val : test_values) {
-        auto it = std::find(list.begin(), list.end(), val);
-        if (it != list.end()) {
-            std::cout << "   " << val << " найден ✓" << std::endl;
-        } else {
-            std::cout << "   " << val << " НЕ найден ✗" << std::endl;
-        }
+    int iteration_count = 0;
+    for (auto it = list.begin(); it != list.end(); ++it) {
+        iteration_count++;
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
 
-    // Ищем несуществующее
-    auto not_found_it = std::find(list.begin(), list.end(), 999);
-    if (not_found_it == list.end()) {
-        std::cout << "   999 не найден (правильно) ✓" << std::endl;
+    modifier.join();
+
+    std::cout << "Количество итераций: " << iteration_count << std::endl;
+    std::cout << "Финальный размер: " << list.size() << std::endl;
+
+    std::cout << "Итерация во время модификации прошла тест!" << std::endl << std::endl;
+}
+
+int main() {
+    std::cout << "=== Начало тестирования ThreadSafeList ===" << std::endl << std::endl;
+
+    try {
+        test_basic_operations();
+        test_iterator_operations();
+        test_erase_operations();
+        test_boundary_cases();
+        test_concurrent_access();
+        test_concurrent_erase();
+        test_iteration_while_modifying();
+
+        std::cout << "=== Все тесты успешно пройдены! ===" << std::endl;
+        return 0;
+    } catch (const std::exception& e) {
+        std::cerr << "Ошибка во время тестирования: " << e.what() << std::endl;
+        return 1;
+    } catch (...) {
+        std::cerr << "Неизвестная ошибка во время тестирования!" << std::endl;
+        return 1;
     }
-
-    std::cout << "\n=== ВСЕ ТЕСТЫ ЗАВЕРШЕНЫ ===" << std::endl;
-
-    return 0;
 }

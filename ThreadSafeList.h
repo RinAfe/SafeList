@@ -24,39 +24,10 @@ public:
     class Iterator {
     private:
         Node* current;
-        std::unique_lock<std::recursive_mutex> lock;
 
     public:
         Iterator() : current(nullptr) {}
-
-        Iterator(Node* node, std::unique_lock<std::recursive_mutex>&& lock) noexcept
-            : current(node), lock(std::move(lock)) {}
-
-        // Старый конструктор для обратной совместимости
-        Iterator(Node* node, std::recursive_mutex& mtx, bool already_locked = false)
-            : current(node) {
-            if (!already_locked) {
-                lock = std::unique_lock<std::recursive_mutex>(mtx);
-            }
-        }
-
-        Iterator(const Iterator& other) : current(other.current) {
-            if (current != nullptr) {
-                lock = std::unique_lock<std::recursive_mutex>(*other.lock.mutex());
-            }
-        }
-
-        Iterator& operator=(const Iterator& other) {
-            if (this != &other) {
-                current = other.current;
-                if (current != nullptr) {
-                    lock = std::unique_lock<std::recursive_mutex>(*other.lock.mutex());
-                } else {
-                    lock.unlock();
-                }
-            }
-            return *this;
-        }
+        explicit Iterator(Node* node) : current(node) {}
 
         Iterator& operator++() {
             if (current) current = current->next.get();
@@ -124,7 +95,7 @@ public:
 
     bool empty() const {
         std::lock_guard<std::recursive_mutex> lock(mutex);
-        return !size();
+        return size_count == 0;
     }
 
     void clear() {
@@ -136,43 +107,96 @@ public:
         size_count = 0;
     }
 
-    bool remove(const T& value, const Iterator& start_it) {
+    bool erase(const T& value) {
         std::lock_guard<std::recursive_mutex> lock(mutex);
 
-        if (start_it.getNode() == nullptr) {
-            return false;
-        }
-
-        Node* current = (start_it.getNode() != nullptr) ? start_it.getNode() : head.next.get();
-
         Node* prev = &head;
-        while (prev->next.get() != nullptr && prev->next.get() != current) {
+        while (prev->next) {
+            if (prev->next->data && *(prev->next->data) == value) {
+                std::unique_ptr<Node> temp = std::move(prev->next);
+                prev->next = std::move(temp->next);
+
+                if (temp.get() == tail) {
+                    tail = prev;
+                }
+
+                size_count--;
+                return true;
+            }
             prev = prev->next.get();
         }
-
-        while (current) {
-            if (current->data && *(current->data) == value) {
-                if (prev->next.get() == current) {
-                    std::unique_ptr<Node> node_to_remove = std::move(prev->next);
-                    prev->next = std::move(node_to_remove->next);
-                    size_count--;
-                    return true;
-                }
-            }
-
-            prev = current;
-            current = current->next.get();
-        }
-
         return false;
     }
 
-    Iterator begin() {
-        return Iterator(head.next.get(), mutex);
+    Iterator erase(Iterator it) {
+        std::lock_guard<std::recursive_mutex> lock(mutex);
+
+        if (it.getNode() == nullptr) {
+            return end();
+        }
+
+        Node* node_to_remove = it.getNode();
+        Node* prev = &head;
+
+        while (prev->next && prev->next.get() != node_to_remove) {
+            prev = prev->next.get();
+        }
+
+        if (prev->next && prev->next.get() == node_to_remove) {
+            Node* next_node = node_to_remove->next.get();
+            std::unique_ptr<Node> temp = std::move(prev->next);
+            prev->next = std::move(temp->next);
+
+            if (temp.get() == tail) {
+                tail = prev;
+            }
+
+            size_count--;
+            return Iterator(next_node);
+        }
+
+        return end();
     }
 
-    Iterator begin(std::unique_lock<std::recursive_mutex>&& lock) {
-        return Iterator(head.next.get(), std::move(lock));
+    bool remove(const T& value, const Iterator& first, const Iterator& last) {
+        std::lock_guard<std::recursive_mutex> lock(mutex);
+
+        bool removed = false;
+        Node* current = first.getNode();
+        Node* prev = &head;
+
+        while (prev->next && prev->next.get() != current) {
+            prev = prev->next.get();
+        }
+
+        while (current && current != last.getNode()) {
+            if (current->data && *(current->data) == value) {
+                std::unique_ptr<Node> temp = std::move(prev->next);
+                prev->next = std::move(temp->next);
+                current = prev->next.get();
+
+                if (temp.get() == tail) {
+                    tail = prev;
+                }
+
+                size_count--;
+                removed = true;
+            } else {
+                prev = current;
+                current = current->next.get();
+            }
+        }
+
+        return removed;
+    }
+
+    bool remove(const T& value) {
+        return remove(value, begin(), end());
+    }
+
+    Iterator begin() {
+        std::lock_guard<std::recursive_mutex> lock(mutex);
+        return Iterator(head.next.get());
     }
 
     Iterator end() {
